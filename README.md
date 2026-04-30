@@ -4,12 +4,9 @@ Monorepo for a philosophy-focused RAG + semantic search MVP.
 
 ## Prerequisites
 
+- Docker (Postgres + pgvector)
 - Python 3.11+
 - Node.js 20+
-
-## Later prerequisites (when we add infra + local models)
-
-- Docker (Postgres + pgvector)
 - Ollama (local LLM runtime)
 
 ## Repo layout

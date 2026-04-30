@@ -16,6 +16,17 @@ Monorepo for a philosophy-focused RAG + semantic search MVP.
 
 ## Development (placeholders)
 
+### Database (Postgres + pgvector)
+
+```bash
+docker compose up -d
+docker compose down
+```
+
+Set:
+
+- `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/philosophia`
+
 ### API
 
 ```bash

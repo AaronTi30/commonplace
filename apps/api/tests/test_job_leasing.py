@@ -44,7 +44,7 @@ def _seed_work_and_job(db_session, *, status: str = "queued") -> tuple[uuid.UUID
 def test_claim_sets_lease_and_marks_work_running(db_session):
     work_id, job_id = _seed_work_and_job(db_session)
 
-    with db_session.begin():
+    with db_session.begin_nested():
         claimed = claim_next_job(db_session, worker_id="test-worker")
 
     assert claimed is not None
@@ -88,7 +88,7 @@ def test_expired_running_job_can_be_reclaimed(db_session):
         {"id": job_id, "expired": expired},
     )
 
-    with db_session.begin():
+    with db_session.begin_nested():
         claimed = claim_next_job(db_session, worker_id="new-worker")
 
     assert claimed is not None
@@ -106,7 +106,7 @@ def test_expired_running_job_can_be_reclaimed(db_session):
 def test_failure_increments_retry_and_applies_backoff(db_session):
     work_id, job_id = _seed_work_and_job(db_session)
 
-    with db_session.begin():
+    with db_session.begin_nested():
         claimed = claim_next_job(db_session, worker_id="test-worker")
         assert claimed is not None
         mark_job_failed(db_session, job_id=job_id, error="boom")
@@ -121,7 +121,7 @@ def test_failure_increments_retry_and_applies_backoff(db_session):
     assert job.available_at is not None
 
     # Should not be immediately claimable due to backoff.
-    with db_session.begin():
+    with db_session.begin_nested():
         claimed2 = claim_next_job(db_session, worker_id="test-worker-2")
     assert claimed2 is None
 

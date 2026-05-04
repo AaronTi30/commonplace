@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects import postgresql
 
 
 revision = "20260430_000001"
@@ -22,18 +23,82 @@ depends_on = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-    op.execute(sa.text("CREATE TYPE source_type AS ENUM ('gutenberg', 'wikisource')"))
-    op.execute(sa.text("CREATE TYPE ingestion_state AS ENUM ('queued', 'running', 'complete', 'failed')"))
-    op.execute(sa.text("CREATE TYPE job_type AS ENUM ('ingest_work')"))
-    op.execute(sa.text("CREATE TYPE job_status AS ENUM ('queued', 'running', 'succeeded', 'failed')"))
+    # Idempotent enum creation (safe if a previous run failed mid-migration).
     op.execute(
-        sa.text("CREATE TYPE progress_stage AS ENUM ('fetch', 'normalize', 'chunk', 'embed', 'upsert')")
+        sa.text(
+            """
+DO $$ BEGIN
+    CREATE TYPE source_type AS ENUM ('gutenberg', 'wikisource');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+"""
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+DO $$ BEGIN
+    CREATE TYPE ingestion_state AS ENUM ('queued', 'running', 'complete', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+"""
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+DO $$ BEGIN
+    CREATE TYPE job_type AS ENUM ('ingest_work');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+"""
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+DO $$ BEGIN
+    CREATE TYPE job_status AS ENUM ('queued', 'running', 'succeeded', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+"""
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+DO $$ BEGIN
+    CREATE TYPE progress_stage AS ENUM ('fetch', 'normalize', 'chunk', 'embed', 'upsert');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+"""
+        )
+    )
+
+    source_type_enum = postgresql.ENUM(
+        "gutenberg", "wikisource", name="source_type", create_type=False
+    )
+    ingestion_state_enum = postgresql.ENUM(
+        "queued", "running", "complete", "failed", name="ingestion_state", create_type=False
+    )
+    job_type_enum = postgresql.ENUM("ingest_work", name="job_type", create_type=False)
+    job_status_enum = postgresql.ENUM(
+        "queued", "running", "succeeded", "failed", name="job_status", create_type=False
+    )
+    progress_stage_enum = postgresql.ENUM(
+        "fetch",
+        "normalize",
+        "chunk",
+        "embed",
+        "upsert",
+        name="progress_stage",
+        create_type=False,
     )
 
     op.create_table(
         "sources",
         sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("source_type", sa.Enum(name="source_type"), nullable=False),
+        sa.Column("source_type", source_type_enum, nullable=False),
         sa.Column("locator", sa.Text(), nullable=False),
         sa.Column("canonical_url", sa.Text(), nullable=False),
         sa.Column("license_notes", sa.Text(), nullable=True),
@@ -80,7 +145,7 @@ def upgrade() -> None:
         sa.Column("title", sa.Text(), nullable=True),
         sa.Column("author", sa.Text(), nullable=True),
         sa.Column("language", sa.Text(), nullable=True),
-        sa.Column("ingestion_state", sa.Enum(name="ingestion_state"), server_default="queued", nullable=False),
+        sa.Column("ingestion_state", ingestion_state_enum, server_default="queued", nullable=False),
         sa.Column("ingested_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -131,8 +196,8 @@ def upgrade() -> None:
     op.create_table(
         "ingestion_jobs",
         sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("job_type", sa.Enum(name="job_type"), nullable=False),
-        sa.Column("status", sa.Enum(name="job_status"), server_default="queued", nullable=False),
+        sa.Column("job_type", job_type_enum, nullable=False),
+        sa.Column("status", job_status_enum, server_default="queued", nullable=False),
         sa.Column("retry_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column(
@@ -142,7 +207,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("payload", sa.dialects.postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
-        sa.Column("progress_stage", sa.Enum(name="progress_stage"), server_default="fetch", nullable=False),
+        sa.Column("progress_stage", progress_stage_enum, server_default="fetch", nullable=False),
         sa.Column("progress", sa.dialects.postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
         sa.Column("locked_by", sa.Text(), nullable=True),
         sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),

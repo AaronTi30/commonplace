@@ -1,5 +1,11 @@
 # Docs
-docs/
+# Keep project docs in git; ignore only common build artifacts.
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+docs/.docusaurus/
+docs/build/
+docs/dist/
+docs/_site/
 
 # Python
 __pycache__/

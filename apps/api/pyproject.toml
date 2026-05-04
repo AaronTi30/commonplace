@@ -28,3 +28,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# Local `alembic/` (migration scripts) sits next to `app/`; setuptools would treat both as
+# top-level packages and refuse the build. Only discover our application package.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app"]
+exclude = ["alembic*", "tests*"]
+

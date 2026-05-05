@@ -12,6 +12,10 @@ class Settings(BaseSettings):
 
     database_url: str | None = None
 
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "mistral"
+    ollama_timeout_seconds: float = 120.0
+
 
 settings = Settings()
 

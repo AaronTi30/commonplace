@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -107,6 +108,29 @@ def _search_select(query_embedding: list[float], k: int, filters: SearchFilters 
     return stmt
 
 
+def retrieve_passages_similarity(
+    session: Session,
+    query_embedding: list[float],
+    k: int,
+    filters: SearchFilters | None,
+) -> list[dict[str, Any]]:
+    """
+    Top-k passages by cosine similarity (full ``cleaned_text``), for search + ask.
+    """
+    stmt = _search_select(query_embedding, k, filters)
+    rows = session.execute(stmt).all()
+    return [
+        {
+            "passage_id": str(r.passage_id),
+            "work_id": str(r.work_id),
+            "citation_string": r.citation_string,
+            "cleaned_text": r.cleaned_text,
+            "score": float(r.score),
+        }
+        for r in rows
+    ]
+
+
 @router.post("/search")
 def search(
     body: SearchRequest,
@@ -126,16 +150,15 @@ def search(
         )
 
     q_vec = encode_query_vector(q)
-    stmt = _search_select(q_vec, body.k, body.filters)
-    rows = session.execute(stmt).all()
+    rows = retrieve_passages_similarity(session, q_vec, body.k, body.filters)
 
     results = [
         {
-            "passage_id": str(r.passage_id),
-            "work_id": str(r.work_id),
-            "citation_string": r.citation_string,
-            "cleaned_text_snippet": snippet_from_cleaned(r.cleaned_text),
-            "score": float(r.score),
+            "passage_id": r["passage_id"],
+            "work_id": r["work_id"],
+            "citation_string": r["citation_string"],
+            "cleaned_text_snippet": snippet_from_cleaned(r["cleaned_text"]),
+            "score": r["score"],
         }
         for r in rows
     ]
@@ -151,6 +174,7 @@ __all__ = [
     "SearchFilters",
     "SearchRequest",
     "get_encode_query_vector",
+    "retrieve_passages_similarity",
     "router",
     "snippet_from_cleaned",
 ]

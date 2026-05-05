@@ -1,5 +1,10 @@
 import "./globals.css";
 import type React from "react";
+import { Inter } from "next/font/google";
+import { Nav } from "@/components/nav";
+import { Providers } from "@/components/providers";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: "philosophia-engine",
@@ -13,8 +18,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={`${inter.className} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}>
+        <Providers>
+          <Nav />
+          <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        </Providers>
+      </body>
     </html>
   );
 }
-

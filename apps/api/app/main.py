@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
+from app.api.search import router as search_router
 from app.api.works import router as works_router
 
 
@@ -23,5 +24,6 @@ def health() -> dict[str, str]:
 
 app.include_router(ingest_router)
 app.include_router(jobs_router)
+app.include_router(search_router)
 app.include_router(works_router)
 

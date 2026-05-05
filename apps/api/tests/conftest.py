@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.db.deps import get_db_session
 from app.main import app
 
 
@@ -32,9 +33,19 @@ def _require_test_db_url() -> str:
 TEST_DATABASE_URL = _require_test_db_url()
 
 
-@pytest.fixture(scope="session")
-def client():
-    return TestClient(app)
+@pytest.fixture()
+def client(db_session):
+    # Route API handlers to the same transaction-bound session fixture, so tests
+    # can seed state without committing and still assert behavior.
+    def _override():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = _override
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="session")
@@ -63,6 +74,13 @@ def db_engine():
 def db_session(db_engine):
     with Session(db_engine) as session:
         session.execute(text("SET timezone TO 'UTC'"))
+        session.execute(
+            text(
+                "TRUNCATE TABLE "
+                "passage_embeddings, passages, ingestion_jobs, source_artifacts, works, sources "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
         yield session
         session.rollback()
 

@@ -43,6 +43,19 @@ _WS_COLLAPSE = re.compile(r"[ \t]+")
 _MULTI_BLANK = re.compile(r"\n{3,}")
 
 
+def normalized_plaintext_for_chunking(raw: str, source_type: str) -> str:
+    """
+    Route raw artifact bytes to the correct normalizer before chunking.
+
+    ``source_type`` is ``\"gutenberg\"`` or ``\"wikisource\"`` (enum value strings).
+    """
+    if source_type == "gutenberg":
+        return normalize_gutenberg_plaintext(raw)
+    if source_type == "wikisource":
+        return normalize_wikisource_html(raw)
+    raise ValueError(f"unsupported source_type: {source_type!r}")
+
+
 def normalize_wikisource_html(raw_html: str) -> str:
     """
     Deterministic HTML → text for English Wikisource REST HTML (MVP, pinned).

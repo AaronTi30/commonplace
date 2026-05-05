@@ -19,7 +19,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -244,4 +244,23 @@ class IngestionJob(Base):
     work: Mapped["Work"] = relationship(back_populates="jobs")
 
     __table_args__ = (Index("ix_ingestion_jobs_status_created_at", "status", "created_at"),)
+
+
+def update_ingestion_job_progress(
+    session: Session,
+    job_id: uuid.UUID,
+    stage: ProgressStage,
+    **progress_fields: object,
+) -> None:
+    """Merge ``progress_fields`` into ``ingestion_jobs.progress`` and set ``progress_stage``."""
+    job = session.get(IngestionJob, job_id)
+    if job is None:
+        return
+    data = dict(job.progress or {})
+    data["stage"] = stage.value
+    for key, value in progress_fields.items():
+        if value is not None:
+            data[key] = value
+    job.progress_stage = stage
+    job.progress = data
 

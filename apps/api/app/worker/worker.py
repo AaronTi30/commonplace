@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import time
@@ -7,15 +8,28 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+from sqlalchemy import delete, select, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.db.models import JobStatus
-
+from app.db.models import (
+    Passage,
+    ProgressStage,
+    SourceArtifact,
+    SourceType,
+    Work,
+    update_ingestion_job_progress,
+)
+from app.ingest.chunk import CHUNKER_VERSION, chunk_normalized_text
+from app.ingest.embed import EMBEDDING_DIM, EMBEDDING_MODEL, embed_passages_for_work
+from app.ingest.fetch_gutenberg import ArtifactFetchResult, fetch_gutenberg
+from app.ingest.fetch_wikisource import fetch_wikisource
+from app.ingest.normalize import normalized_plaintext_for_chunking
 
 LEASE_TTL_SECONDS = 300
 MAX_RETRIES = 3
+
+PARSER_VERSION_FETCH = "fetch-mvp-1"
 
 
 @dataclass(frozen=True)
@@ -133,7 +147,7 @@ def mark_job_succeeded(session: Session, *, job_id: uuid.UUID) -> None:
 
 
 def _retry_backoff_seconds(retry_count: int) -> int:
-    base = min(60, 2 ** retry_count)
+    base = min(60, 2**retry_count)
     return max(1, base) + random.randint(0, 3)
 
 
@@ -207,21 +221,168 @@ def mark_job_failed(session: Session, *, job_id: uuid.UUID, error: str) -> None:
     )
 
 
+def _latest_ok_artifact(session: Session, *, source_id: uuid.UUID) -> SourceArtifact | None:
+    return session.scalar(
+        select(SourceArtifact)
+        .where(SourceArtifact.source_id == source_id)
+        .where(SourceArtifact.http_status >= 200)
+        .where(SourceArtifact.http_status < 300)
+        .order_by(SourceArtifact.created_at.desc())
+        .limit(1)
+    )
+
+
+def _artifact_body_bytes(res: ArtifactFetchResult) -> bytes:
+    if res.raw_text is not None:
+        return res.raw_text.encode("utf-8")
+    if res.raw_html is not None:
+        return res.raw_html.encode("utf-8")
+    raise RuntimeError("artifact fetch result has no raw body")
+
+
+def _fetch_and_store_artifact(session: Session, *, work: Work, source_type: SourceType) -> SourceArtifact:
+    source = work.source
+    if source is None:
+        raise RuntimeError("work missing source")
+
+    if source_type == SourceType.gutenberg:
+        res = fetch_gutenberg(source.locator)
+    elif source_type == SourceType.wikisource:
+        res = fetch_wikisource(source.locator)
+    else:
+        raise RuntimeError(f"unsupported source_type {source_type!r}")
+
+    if not res.ok_for_source_artifact_row():
+        raise RuntimeError(f"upstream fetch failed with HTTP {res.http_status}")
+
+    body = _artifact_body_bytes(res)
+    artifact = SourceArtifact(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        retrieved_at=_utcnow(),
+        retrieval_url=res.retrieval_url,
+        final_url=res.final_url,
+        http_status=res.http_status,
+        content_type=res.content_type,
+        content_sha256=hashlib.sha256(body).hexdigest(),
+        raw_text=res.raw_text,
+        raw_html=res.raw_html,
+        parser_version=PARSER_VERSION_FETCH,
+    )
+    session.add(artifact)
+    session.flush()
+    return artifact
+
+
+def _load_raw_from_artifact(artifact: SourceArtifact) -> str:
+    if artifact.raw_text is not None:
+        return artifact.raw_text
+    if artifact.raw_html is not None:
+        return artifact.raw_html
+    raise RuntimeError("artifact has no raw payload")
+
+
+def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> None:
+    """
+    Ingestion pipeline: fetch → normalize (in-memory) → chunk → embed → upsert bookkeeping.
+
+    Expects ``work`` rows and ``ingestion_jobs`` row to exist. Commits are the caller's
+    responsibility (run inside ``session.begin()``).
+    """
+    work = session.execute(
+        select(Work).where(Work.id == work_id).options(joinedload(Work.source))
+    ).unique().scalar_one()
+    source = work.source
+    if source is None:
+        raise RuntimeError("work has no source")
+
+    source_type = source.source_type
+
+    update_ingestion_job_progress(session, job_id, ProgressStage.fetch, fetched=0)
+    artifact = _latest_ok_artifact(session, source_id=source.id)
+    if artifact is None:
+        artifact = _fetch_and_store_artifact(session, work=work, source_type=source_type)
+    update_ingestion_job_progress(session, job_id, ProgressStage.fetch, fetched=1)
+
+    update_ingestion_job_progress(session, job_id, ProgressStage.normalize)
+    raw = _load_raw_from_artifact(artifact)
+    normalized = normalized_plaintext_for_chunking(raw, source_type.value)
+
+    update_ingestion_job_progress(session, job_id, ProgressStage.chunk)
+    chunks = chunk_normalized_text(
+        normalized,
+        author=work.author,
+        title=work.title,
+        chunker_version=CHUNKER_VERSION,
+    )
+    session.execute(delete(Passage).where(Passage.work_id == work_id))
+    for ch in chunks:
+        session.add(
+            Passage(
+                id=uuid.uuid4(),
+                work_id=work_id,
+                section_label=ch.section_label,
+                passage_index=ch.passage_index,
+                raw_text=ch.cleaned_text,
+                cleaned_text=ch.cleaned_text,
+                citation_string=ch.citation_string,
+                chunker_version=ch.chunker_version,
+            )
+        )
+    session.flush()
+    total = len(chunks)
+    update_ingestion_job_progress(
+        session,
+        job_id,
+        ProgressStage.chunk,
+        chunked=total,
+        total_passages=total,
+    )
+
+    update_ingestion_job_progress(session, job_id, ProgressStage.embed, embedded=0)
+    embedded = embed_passages_for_work(session, work_id)
+    session.flush()
+    update_ingestion_job_progress(
+        session,
+        job_id,
+        ProgressStage.embed,
+        embedded=embedded,
+        total_passages=total,
+    )
+
+    update_ingestion_job_progress(
+        session,
+        job_id,
+        ProgressStage.upsert,
+        upserted=total,
+        total_passages=total,
+    )
+
+
 def worker_loop(engine: Engine, *, poll_interval_seconds: float = 1.0) -> None:
     worker_id = os.getenv("WORKER_ID") or f"worker-{uuid.uuid4()}"
 
     while True:
+        job: ClaimedJob | None = None
         with Session(engine) as session:
             with session.begin():
                 job = claim_next_job(session, worker_id=worker_id)
 
-                if not job:
-                    job = None
-                else:
-                    mark_job_succeeded(session, job_id=job.job_id)
-
         if not job:
             time.sleep(poll_interval_seconds)
+            continue
+
+        try:
+            with Session(engine) as session:
+                with session.begin():
+                    run_ingest_job(session, job.job_id, job.work_id)
+            with Session(engine) as session:
+                with session.begin():
+                    mark_job_succeeded(session, job_id=job.job_id)
+        except Exception as exc:  # noqa: BLE001 — surface last error to job row
+            with Session(engine) as session:
+                with session.begin():
+                    mark_job_failed(session, job_id=job.job_id, error=repr(exc))
 
 
 def main() -> None:
@@ -233,4 +394,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

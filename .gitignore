@@ -1,5 +1,9 @@
 # Docs
 # Keep project docs in git; ignore only common build artifacts.
+#
+# Personal dev log — do not commit (local only).
+docs/dev-log.md
+
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 docs/.docusaurus/

@@ -1,15 +1,5 @@
-# Docs
-# Keep project docs in git; ignore only common build artifacts.
-#
-# Personal dev log — do not commit (local only).
-docs/dev-log.md
-
-docs/.vitepress/cache/
-docs/.vitepress/dist/
-docs/.docusaurus/
-docs/build/
-docs/dist/
-docs/_site/
+# Documentation (local only — not tracked in git)
+docs/
 
 # Python
 __pycache__/

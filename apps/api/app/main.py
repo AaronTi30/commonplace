@@ -14,10 +14,9 @@ app = FastAPI(title="philosophia-api")
 # UI is a separate origin (Next dev server), so we must allow browser CORS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    # Dev UI runs on Next.js (often localhost OR a LAN IP like 10.x.x.x).
+    # Allow any http://<host>:3000 origin for local development.
+    allow_origin_regex=r"^http://.+:3000$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

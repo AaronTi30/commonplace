@@ -1,17 +1,112 @@
-# commonplace
+# Commonplace
 
-Local-first semantic search + grounded Q&A (RAG) over any public-domain text.
+A **full-stack, local-first RAG (Retrieval-Augmented Generation) system** for semantic search and grounded question answering over long-form texts.
 
-Build a personal corpus from Project Gutenberg or Wikisource, search passages semantically with citations, and ask questions with grounded, evidence-backed answers — all running on your machine with no hosted API cost.
+Runs entirely locally using vector search and a local LLM, with **citation-backed answers and optional strict grounding validation**.
 
-## What you can do
+---
 
-- **Ingest works** from Gutenberg IDs/URLs or Wikisource URLs (background job + idempotent pipeline)
-- **Search passages** with pgvector semantic retrieval + filters + citations
-- **Ask questions (RAG)** in:
-  - **Fluent mode**: prose with `[N]` citations mapped to an evidence panel
-  - **Strict mode**: JSON-structured claims + quote grounding validation (falls back to “Insufficient evidence” when ungrounded)
-- **Delete works** from the corpus via the UI
+## ⚡ What It Does
+
+* 🔍 Semantic search over ingested documents
+* 💬 Ask questions grounded in source text
+* 📚 Returns answers with **citations and supporting quotes**
+* 🧠 Optional **strict mode** to enforce evidence-backed responses
+* 🔒 Fully local — no external APIs required
+
+---
+
+## 🧠 Key Idea
+
+Most LLM systems hallucinate because they generate without constraints.
+
+This system:
+
+* retrieves relevant context first
+* forces answers to be grounded in real text
+* validates outputs when strict mode is enabled
+
+---
+
+## 🏗️ System Overview
+
+Core pipeline:
+
+1. **Ingestion**
+
+   * Load and clean documents (e.g. public-domain books)
+
+2. **Chunking**
+
+   * Split text into retrieval-friendly segments
+
+3. **Embedding**
+
+   * Convert text into vector representations
+
+4. **Indexing**
+
+   * Store embeddings in a vector database (pgvector)
+
+5. **Retrieval**
+
+   * Perform similarity search (top-K)
+
+6. **Generation**
+
+   * Inject retrieved context into prompt
+   * Generate answer using a local LLM
+
+7. **Grounding Validation (Strict Mode)**
+
+   * Enforce structured outputs
+   * Validate claims against retrieved text
+   * Return *“Insufficient evidence”* if unsupported
+
+---
+
+## 🧠 Grounding Modes
+
+### Fluent Mode
+
+* Natural language answers
+* Includes citations
+
+### Strict Mode (Core Feature)
+
+* Structured outputs
+* Quote-level validation
+* Rejects unsupported answers
+
+---
+
+## 🖥️ Features
+
+* Local-first LLM inference (via Ollama)
+* Vector search with pgvector
+* Document ingestion + management
+* Semantic search + Q&A interface
+* Grounded responses with citations
+* Strict validation mode for correctness
+
+---
+
+## 🔧 Design Goals
+
+* Local-first (privacy + zero API cost)
+* Low-latency retrieval
+* Grounded, verifiable outputs
+* Modular and extensible system design
+
+---
+
+## 📌 Why This Project
+
+This project explores:
+
+* how to build **reliable RAG systems locally**
+* how to **reduce hallucinations through validation**
+* how retrieval design impacts LLM behavior
 
 ## Prerequisites
 

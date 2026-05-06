@@ -16,5 +16,10 @@ def _session_factory():
 def get_db_session():
     SessionLocal = _session_factory()
     with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
 

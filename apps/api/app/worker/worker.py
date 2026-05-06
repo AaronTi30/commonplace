@@ -24,7 +24,7 @@ from app.ingest.chunk import CHUNKER_VERSION, chunk_normalized_text
 from app.ingest.embed import EMBEDDING_DIM, EMBEDDING_MODEL, embed_passages_for_work
 from app.ingest.fetch_gutenberg import ArtifactFetchResult, fetch_gutenberg
 from app.ingest.fetch_wikisource import fetch_wikisource
-from app.ingest.metadata import extract_gutenberg_metadata, extract_wikisource_metadata
+from app.ingest.metadata import WorkMetadata, extract_gutenberg_metadata, extract_wikisource_metadata, fetch_gutenberg_metadata_api
 from app.ingest.normalize import normalized_plaintext_for_chunking
 
 LEASE_TTL_SECONDS = 300
@@ -309,8 +309,17 @@ def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> N
     raw = _load_raw_from_artifact(artifact)
 
     # Best-effort metadata extraction (improves UI + citation strings).
-    if source_type == SourceType.gutenberg and artifact.raw_text is not None:
-        md = extract_gutenberg_metadata(artifact.raw_text)
+    if source_type == SourceType.gutenberg:
+        # Try the Gutendex API first (works for all Gutenberg books regardless of format),
+        # fall back to parsing the raw text header (works for modern-format files).
+        md = fetch_gutenberg_metadata_api(source.locator)
+        if not (md.title and md.author):
+            md_text = extract_gutenberg_metadata(artifact.raw_text) if artifact.raw_text else WorkMetadata()
+            md = WorkMetadata(
+                title=md.title or md_text.title,
+                author=md.author or md_text.author,
+                language=md.language or md_text.language,
+            )
     elif source_type == SourceType.wikisource and artifact.raw_html is not None:
         md = extract_wikisource_metadata(canonical_locator=source.locator, raw_html=artifact.raw_html)
     else:

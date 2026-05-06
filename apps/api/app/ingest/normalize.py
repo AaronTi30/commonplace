@@ -32,10 +32,21 @@ def strip_gutenberg_boilerplate(text: str) -> str:
     return "\n".join(lines[start_idx:end_idx]).strip()
 
 
+def strip_gutenberg_markup(text: str) -> str:
+    """Remove plain text markup conventions used in Gutenberg files."""
+    # _italics_ → italics
+    text = re.sub(r"_([^_]+)_", r"\1", text)
+    # superscripts like M^{rs} → Mrs or M^r → Mr
+    text = re.sub(r"\^\{([^}]+)\}", r"\1", text)
+    text = re.sub(r"\^(\w)", r"\1", text)
+    return text
+
+
 def normalize_gutenberg_plaintext(raw: str) -> str:
     """Strip Gutenberg boilerplate; normalize newlines (spec: normalize before chunk)."""
     t = normalize_newlines(raw)
     t = strip_gutenberg_boilerplate(t)
+    t = strip_gutenberg_markup(t)
     return t.strip()
 
 

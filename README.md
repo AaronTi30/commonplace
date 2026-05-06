@@ -72,7 +72,7 @@ Core pipeline:
 * Natural language answers
 * Includes citations
 
-### Strict Mode (Core Feature)
+### Strict Mode
 
 * Structured outputs
 * Quote-level validation

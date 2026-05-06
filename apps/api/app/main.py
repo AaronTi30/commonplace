@@ -9,7 +9,7 @@ from app.api.search import router as search_router
 from app.api.works import router as works_router
 
 
-app = FastAPI(title="philosophia-api")
+app = FastAPI(title="commonplace-api")
 
 # UI is a separate origin (Next dev server), so we must allow browser CORS.
 app.add_middleware(

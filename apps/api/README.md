@@ -1,6 +1,6 @@
-# philosophia-api
+# commonplace-api
 
-FastAPI skeleton for the philosophia-engine API.
+FastAPI skeleton for the commonplace API.
 
 ## Run (dev)
 
@@ -8,7 +8,7 @@ FastAPI skeleton for the philosophia-engine API.
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/philosophia'
+export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/commonplace'
 alembic upgrade head
 uvicorn app.main:app --reload
 ```

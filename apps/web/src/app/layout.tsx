@@ -7,7 +7,7 @@ import { Providers } from "@/components/providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "philosophia-engine",
+  title: "commonplace",
   description: "Philosophy RAG + semantic search MVP"
 };
 

@@ -5,7 +5,7 @@ export default function Home() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-          philosophia-engine
+          commonplace
         </h1>
         <p className="mt-2 max-w-xl text-zinc-600">
           Local-first semantic search and grounded Q&A over philosophical texts (Gutenberg +

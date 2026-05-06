@@ -1,4 +1,4 @@
-# philosophia-engine
+# commonplace
 
 Local-first semantic search + grounded Q&A (RAG) over public-domain philosophical / religious texts.
 
@@ -38,7 +38,7 @@ docker compose up -d
 Create a separate test DB (for pytest safety):
 
 ```bash
-docker exec -it philosophia-engine-db-1 psql -U postgres -c "CREATE DATABASE philosophia_test;"
+docker exec -it commonplace-db-1 psql -U postgres -c "CREATE DATABASE commonplace_test;"
 ```
 
 ### 2) Start Ollama + pull a model
@@ -57,8 +57,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/philosophia'
-export TEST_DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/philosophia_test'  # must end with _test
+export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/commonplace'
+export TEST_DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/commonplace_test'  # must end with _test
 
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
@@ -69,7 +69,7 @@ In a second terminal:
 ```bash
 cd apps/api
 source .venv/bin/activate
-export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/philosophia'
+export DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/commonplace'
 python -m app.worker.worker
 ```
 
@@ -108,7 +108,7 @@ docker compose down
 
 Set:
 
-- `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/philosophia`
+- `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/commonplace`
 
 ### API
 

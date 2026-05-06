@@ -1,2 +1,2 @@
-"""FastAPI routers for philosophia-api."""
+"""FastAPI routers for commonplace-api."""
 

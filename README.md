@@ -1,8 +1,8 @@
 # commonplace
 
-Local-first semantic search + grounded Q&A (RAG) over public-domain philosophical / religious texts.
+Local-first semantic search + grounded Q&A (RAG) over any public-domain text.
 
-Build your corpus in-app from Project Gutenberg + Wikisource, then search passages and ask questions with transparent evidence.
+Build a personal corpus from Project Gutenberg or Wikisource, search passages semantically with citations, and ask questions with grounded, evidence-backed answers — all running on your machine with no hosted API cost.
 
 ## What you can do
 

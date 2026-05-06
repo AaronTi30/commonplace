@@ -53,9 +53,25 @@ Previous output (invalid):
 def build_fluent_prompt(question: str, passages: list[dict[str, Any]]) -> str:
     blocks = "\n".join(_format_passage_block(p, i) for i, p in enumerate(passages, start=1))
     return f"""You are a helpful assistant. Answer the question using the numbered passages below.
-Cite sources using inline markers like [1], [2] referring to the passage numbers given.
+
+Citation rules (MANDATORY):
+- Use inline numeric citations like [1], [2] that refer to the passage numbers below.
+- Do NOT write \"Excerpt 1\" or similar text; ONLY use [N] markers.
+- Every paragraph must contain at least one [N] citation.
+- If you cannot answer from the passages, respond with: Insufficient evidence. [1]
 
 Question: {question}
 
 {blocks}
+"""
+
+
+def build_fluent_repair_prompt(question: str, passages: list[dict[str, Any]], previous: str) -> str:
+    base = build_fluent_prompt(question, passages)
+    return f"""You forgot to include required [N] citations. Rewrite your answer and include [N] citations.
+
+Previous output (invalid):
+{previous}
+
+{base}
 """

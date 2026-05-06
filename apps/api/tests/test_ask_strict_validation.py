@@ -204,6 +204,29 @@ def test_fluent_mode_extracts_bracket_citations(client, db_session):
         _clear_ollama_override()
 
 
+def test_fluent_mode_retries_once_if_missing_citations(client, db_session):
+    _, p1 = _seed_work_with_passage(db_session, cleaned_text="First passage.", vec=_u(0))
+    _, p2 = _seed_work_with_passage(db_session, cleaned_text="Second passage.", vec=_u(1))
+
+    _override_encode(lambda _q: _u(0))
+    _override_ollama(
+        FakeOllama(
+            [
+                "Here is an answer but I forgot citations.",
+                "Retry with cites [1] and [2].",
+            ]
+        )
+    )
+    try:
+        r = client.post("/api/ask", json={"query": "Explain.", "k": 5, "mode": "fluent"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["cited_passage_ids"] == [str(p1), str(p2)]
+    finally:
+        _clear_encode_override()
+        _clear_ollama_override()
+
+
 def test_ask_k_bounds(client, db_session):
     _seed_work_with_passage(db_session)
     r = client.post("/api/ask", json={"query": "hi", "k": 21, "mode": "strict"})

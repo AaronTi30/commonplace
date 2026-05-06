@@ -26,7 +26,12 @@ from app.llm.grounding import (
     validate_strict_answer,
 )
 from app.llm.ollama_client import OllamaClient, get_ollama_client
-from app.llm.prompts import build_fluent_prompt, build_strict_prompt, build_strict_repair_prompt
+from app.llm.prompts import (
+    build_fluent_prompt,
+    build_fluent_repair_prompt,
+    build_strict_prompt,
+    build_strict_repair_prompt,
+)
 from app.settings import settings
 
 router = APIRouter(prefix="/api", tags=["ask"])
@@ -134,6 +139,10 @@ def ask(
     prompt = build_fluent_prompt(q, retrieved)
     answer_markdown = ollama.generate(prompt)
     cited = cited_passage_ids_from_fluent_markdown(answer_markdown, retrieved)
+    if not cited:
+        repair = build_fluent_repair_prompt(q, retrieved, answer_markdown)
+        answer_markdown = ollama.generate(repair)
+        cited = cited_passage_ids_from_fluent_markdown(answer_markdown, retrieved)
     return {
         "answer_markdown": answer_markdown,
         "retrieved_passages": retrieved,

@@ -8,9 +8,9 @@ export default function Home() {
           commonplace
         </h1>
         <p className="mt-2 max-w-xl text-zinc-600">
-          Local-first semantic search and grounded Q&A over philosophical texts (Gutenberg +
-          Wikisource). Run Postgres + API + worker, build your corpus, then search or ask with
-          citations.
+          Local-first semantic search and grounded Q&A over any public-domain text (Gutenberg +
+          Wikisource). Build your corpus, then search passages or ask questions with cited,
+          evidence-backed answers.
         </p>
       </div>
       <ul className="flex flex-col gap-3 text-sm sm:flex-row sm:flex-wrap">

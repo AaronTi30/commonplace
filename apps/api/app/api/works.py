@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.db.models import SourceType
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import Session
 
 from app.api.errors import error
@@ -116,3 +116,23 @@ def get_work(
         **({"next_cursor": next_cursor} if next_cursor else {}),
     }
 
+
+@router.delete("/works/{work_id}")
+def delete_work(work_id: uuid.UUID, session: Session = Depends(get_db_session)) -> dict:
+    """
+    Delete a work from the corpus.
+
+    Deletes the Work row (cascades to passages, embeddings, and ingestion jobs),
+    then deletes its Source row (cascades to source_artifacts). One-work-per-source
+    is enforced by schema, so this is safe.
+    """
+    work = session.get(Work, work_id)
+    if not work:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
+
+    source_id = work.source_id
+    session.execute(delete(Work).where(Work.id == work_id))
+    session.execute(delete(Source).where(Source.id == source_id))
+    session.flush()
+
+    return {"deleted": True, "work_id": str(work_id)}

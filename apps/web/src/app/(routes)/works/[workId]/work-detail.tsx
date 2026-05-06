@@ -2,13 +2,16 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getWork } from "@/lib/api";
+import { deleteWork } from "@/lib/api";
 
 type Props = {
   workId: string;
 };
 
 export function WorkDetailView({ workId }: Props) {
+  const router = useRouter();
   const q = useInfiniteQuery({
     queryKey: ["work", workId],
     queryFn: ({ pageParam }) =>
@@ -41,14 +44,32 @@ export function WorkDetailView({ workId }: Props) {
 
       {work && (
         <header className="border-b border-zinc-200 pb-6">
-          <h1 className="text-2xl font-semibold text-zinc-900">
-            {(work.title as string) ?? "Untitled"}
-          </h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            {(work.author as string) ?? "Unknown author"}
-            {work.language ? ` · ${work.language as string}` : ""}
-          </p>
-          <p className="mt-1 text-xs text-zinc-400 font-mono">{workId}</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold text-zinc-900">
+                {(work.title as string) ?? "Untitled"}
+              </h1>
+              <p className="mt-2 text-sm text-zinc-600">
+                {(work.author as string) ?? "Unknown author"}
+                {work.language ? ` · ${work.language as string}` : ""}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400 font-mono">{workId}</p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+              onClick={async () => {
+                const ok = window.confirm(
+                  `Delete this work from your corpus?\n\n${(work.title as string) ?? "Untitled"}\n${workId}`
+                );
+                if (!ok) return;
+                await deleteWork(workId);
+                router.push("/corpus");
+              }}
+            >
+              Delete
+            </button>
+          </div>
         </header>
       )}
 

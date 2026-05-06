@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ApiError, getJob, ingest, listWorks } from "@/lib/api";
+import { ApiError, deleteWork, getJob, ingest, listWorks } from "@/lib/api";
 
 export default function CorpusPage() {
   const qc = useQueryClient();
@@ -15,6 +15,18 @@ export default function CorpusPage() {
   const worksQuery = useQuery({
     queryKey: ["works"],
     queryFn: () => listWorks()
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (workId: string) => deleteWork(workId),
+    onSuccess: async () => {
+      setMessage(null);
+      await qc.invalidateQueries({ queryKey: ["works"] });
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof ApiError ? e.messageFromApi() : String(e);
+      setMessage(msg);
+    }
   });
 
   const ingestMut = useMutation({
@@ -165,7 +177,23 @@ export default function CorpusPage() {
                     {w.author ?? "Unknown author"} · {w.source_type} · {w.ingestion_state}
                   </p>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">{w.work_id}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-zinc-400">{w.work_id}</span>
+                  <button
+                    type="button"
+                    className="rounded border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    disabled={deleteMut.isPending}
+                    onClick={() => {
+                      const ok = window.confirm(
+                        `Delete this work from your corpus?\n\n${w.title ?? "Untitled"}\n${w.work_id}`
+                      );
+                      if (!ok) return;
+                      deleteMut.mutate(w.work_id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

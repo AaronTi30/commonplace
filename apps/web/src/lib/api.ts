@@ -119,6 +119,10 @@ export async function getWork(
   return apiFetch(`/api/works/${workId}${qs ? `?${qs}` : ""}`);
 }
 
+export async function deleteWork(workId: string): Promise<{ deleted: boolean; work_id: string }> {
+  return apiFetch(`/api/works/${workId}`, { method: "DELETE" });
+}
+
 export type SearchHit = {
   passage_id: string;
   work_id: string;

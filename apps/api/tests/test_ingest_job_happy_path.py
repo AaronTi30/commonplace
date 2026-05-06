@@ -38,8 +38,8 @@ def _seed_ingest(db_session, *, locator: str = "42") -> tuple[uuid.UUID, uuid.UU
         Work(
             id=work_id,
             source_id=source_id,
-            title="Demo",
-            author="Author",
+            title=None,
+            author=None,
             ingestion_state=IngestionState.running,
         )
     )
@@ -76,6 +76,11 @@ def _fake_fetch(body: str):
 def test_run_ingest_job_fetch_chunk_embed_progress(monkeypatch, db_session):
     work_id, job_id, _ = _seed_ingest(db_session)
     body = (
+        "Title: Demo Title\n"
+        "Author: Demo Author\n"
+        "Language: English\n"
+        "\n"
+        "*** START OF THE PROJECT GUTENBERG EBOOK DEMO ***\n"
         "First chunk of prose here.\n\nSecond chunk follows with different words.\n\n"
         "*** END OF THE PROJECT GUTENBERG EBOOK DEMO ***\n"
     )
@@ -88,6 +93,12 @@ def test_run_ingest_job_fetch_chunk_embed_progress(monkeypatch, db_session):
 
     run_ingest_job(db_session, job_id, work_id)
     db_session.flush()
+
+    work = db_session.get(Work, work_id)
+    assert work is not None
+    assert work.title == "Demo Title"
+    assert work.author == "Demo Author"
+    assert work.language == "English"
 
     job = db_session.get(IngestionJob, job_id)
     assert job is not None

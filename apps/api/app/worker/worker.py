@@ -24,6 +24,7 @@ from app.ingest.chunk import CHUNKER_VERSION, chunk_normalized_text
 from app.ingest.embed import EMBEDDING_DIM, EMBEDDING_MODEL, embed_passages_for_work
 from app.ingest.fetch_gutenberg import ArtifactFetchResult, fetch_gutenberg
 from app.ingest.fetch_wikisource import fetch_wikisource
+from app.ingest.metadata import extract_gutenberg_metadata, extract_wikisource_metadata
 from app.ingest.normalize import normalized_plaintext_for_chunking
 
 LEASE_TTL_SECONDS = 300
@@ -306,6 +307,23 @@ def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> N
 
     update_ingestion_job_progress(session, job_id, ProgressStage.normalize)
     raw = _load_raw_from_artifact(artifact)
+
+    # Best-effort metadata extraction (improves UI + citation strings).
+    if source_type == SourceType.gutenberg and artifact.raw_text is not None:
+        md = extract_gutenberg_metadata(artifact.raw_text)
+    elif source_type == SourceType.wikisource and artifact.raw_html is not None:
+        md = extract_wikisource_metadata(canonical_locator=source.locator, raw_html=artifact.raw_html)
+    else:
+        md = None
+
+    if md is not None:
+        if md.title and not work.title:
+            work.title = md.title
+        if md.author and not work.author:
+            work.author = md.author
+        if md.language and not work.language:
+            work.language = md.language
+
     normalized = normalized_plaintext_for_chunking(raw, source_type.value)
 
     update_ingestion_job_progress(session, job_id, ProgressStage.chunk)

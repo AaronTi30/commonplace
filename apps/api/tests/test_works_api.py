@@ -61,12 +61,21 @@ def test_get_work_paginates_by_passage_index(client, db_session):
 
 def test_delete_work_removes_work_and_source(client, db_session):
     work_id, source_id = _seed_work(db_session, author="Jane Austen", title="Pride and Prejudice")
+    passage_id = uuid.uuid4()
     db_session.execute(
         text(
             "INSERT INTO passages (id, work_id, passage_index, cleaned_text, citation_string, chunker_version) "
             "VALUES (:id,:w,1,'p','c','mvp-1')"
         ),
-        {"id": uuid.uuid4(), "w": work_id},
+        {"id": passage_id, "w": work_id},
+    )
+    # Embeddings row references works via work_id RESTRICT, so delete must handle it.
+    db_session.execute(
+        text(
+            "INSERT INTO passage_embeddings (id, passage_id, work_id, embedding_model, embedding_dim, embedding) "
+            "VALUES (:id,:p,:w,'sentence-transformers/all-MiniLM-L6-v2',384, :vec)"
+        ),
+        {"id": uuid.uuid4(), "p": passage_id, "w": work_id, "vec": [0.0] * 384},
     )
 
     resp = client.delete(f"/api/works/{work_id}")

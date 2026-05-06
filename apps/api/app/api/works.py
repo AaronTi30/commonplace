@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.errors import error
 from app.db.deps import get_db_session
-from app.db.models import Passage, Source, Work
+from app.db.models import Passage, PassageEmbedding, Source, Work
 
 router = APIRouter(prefix="/api", tags=["works"])
 
@@ -131,6 +131,11 @@ def delete_work(work_id: uuid.UUID, session: Session = Depends(get_db_session)) 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
 
     source_id = work.source_id
+
+    # Delete child rows first. `passage_embeddings.work_id` is a RESTRICT FK, so we must
+    # remove embeddings (or passages which cascade to embeddings) before deleting Work.
+    session.execute(delete(PassageEmbedding).where(PassageEmbedding.work_id == work_id))
+    session.execute(delete(Passage).where(Passage.work_id == work_id))
     session.execute(delete(Work).where(Work.id == work_id))
     session.execute(delete(Source).where(Source.id == source_id))
     session.flush()

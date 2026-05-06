@@ -1,6 +1,6 @@
-const baseUrl = () =>
-  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) ||
-  "http://127.0.0.1:8000";
+// Next replaces NEXT_PUBLIC_* at build time for both server + client bundles.
+// Avoid runtime `typeof process` checks that can behave differently in dev.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -37,7 +37,7 @@ export async function apiFetch<T>(
   if (json !== undefined) {
     headers.set("Content-Type", "application/json");
   }
-  const res = await fetch(`${baseUrl()}${path}`, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers,
     body: json !== undefined ? JSON.stringify(json) : rest.body

@@ -118,7 +118,7 @@ export default function SearchPage() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-indigo-600">
-                      score {r.score.toFixed(4)}
+                      score {r.rrf_score.toFixed(4)}
                     </p>
                     <p className="mt-1 text-sm text-zinc-800">{r.cleaned_text_snippet}</p>
                   </div>

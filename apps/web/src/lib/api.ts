@@ -128,7 +128,7 @@ export type SearchHit = {
   work_id: string;
   citation_string: string;
   cleaned_text_snippet: string;
-  score: number;
+  rrf_score: number;
 };
 
 export async function search(body: {
@@ -140,7 +140,7 @@ export async function search(body: {
     work_ids?: string[];
     language?: string[];
   };
-}): Promise<{ results: SearchHit[]; meta: { k: number; embedding_model: string } }> {
+}): Promise<{ results: SearchHit[]; meta: { k: number; embedding_model: string; retrieval: string } }> {
   return apiFetch("/api/search", { method: "POST", json: body });
 }
 

@@ -109,7 +109,7 @@ def test_search_invalid_source_type_filter(client, db_session):
         _clear_encode_override()
 
 
-def test_search_orders_by_cosine_similarity(client, db_session):
+def test_search_orders_by_rrf_score(client, db_session):
     w_close, p_close = _seed_work_with_passage(db_session, cleaned_text="alpha bravo", vec=_u(0))
     _seed_work_with_passage(db_session, cleaned_text="charlie delta", vec=_u(1))
 
@@ -121,7 +121,7 @@ def test_search_orders_by_cosine_similarity(client, db_session):
         assert len(results) == 2
         assert results[0]["passage_id"] == str(p_close)
         assert results[0]["work_id"] == str(w_close)
-        assert results[0]["score"] >= results[1]["score"]
+        assert results[0]["rrf_score"] >= results[1]["rrf_score"]
     finally:
         _clear_encode_override()
 
@@ -220,6 +220,40 @@ def test_search_meta_embedding_model(client, db_session):
     try:
         r = client.post("/api/search", json={"query": "hello"})
         assert r.status_code == 200
-        assert r.json()["meta"]["embedding_model"] == EMBEDDING_MODEL
+        meta = r.json()["meta"]
+        assert meta["embedding_model"] == EMBEDDING_MODEL
+        assert meta["retrieval"] == "hybrid"
+    finally:
+        _clear_encode_override()
+
+
+def test_search_hybrid_surfaces_fts_match(client, db_session):
+    """
+    A passage with a keyword match but no vector similarity should still surface
+    via the FTS arm. Seed two passages: one semantically close to the query vector
+    (vec unit-0), one containing the keyword "Wickham" but semantically orthogonal
+    (vec unit-1). The query is unit-0 vector + "Wickham" text. Both should appear.
+    """
+    # Passage A: semantically close to query vector, no keyword
+    _seed_work_with_passage(
+        db_session,
+        cleaned_text="Elizabeth smiled at the gathering.",
+        vec=_u(0),
+    )
+    # Passage B: contains the keyword "Wickham", semantically orthogonal
+    _seed_work_with_passage(
+        db_session,
+        cleaned_text="Wickham approached with his usual charm.",
+        vec=_u(1),
+    )
+
+    _override_encode(lambda _q: _u(0))  # vector arm favours passage A
+    try:
+        resp = client.post("/api/search", json={"query": "Wickham", "k": 10})
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        texts = [r["cleaned_text_snippet"] for r in results]
+        assert any("Wickham" in t for t in texts), "FTS arm should surface the Wickham passage"
+        assert any("Elizabeth" in t for t in texts), "Vector arm should surface the Elizabeth passage"
     finally:
         _clear_encode_override()

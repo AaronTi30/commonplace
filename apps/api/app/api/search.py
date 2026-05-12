@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, literal_column, or_, select, text
 
 from app.api.errors import error
 from app.db.deps import get_db_session
@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 router = APIRouter(prefix="/api", tags=["search"])
 
 SNIPPET_MAX = 300
+_RRF_K = 60  # standard RRF constant; no tuning needed
+_OVER_FETCH = 4  # fetch 4k candidates per arm before merging to top-k
 
 EncodeQueryVector = Callable[[str], list[float]]
 
@@ -131,6 +133,101 @@ def retrieve_passages_similarity(
     ]
 
 
+def retrieve_passages_hybrid(
+    session: Session,
+    query: str,
+    query_embedding: list[float],
+    k: int,
+    filters: SearchFilters | None,
+) -> list[dict[str, Any]]:
+    """
+    Top-k passages via RRF over vector cosine + Postgres full-text search arms.
+    Only used by the search endpoint; Ask keeps pure vector retrieval.
+    """
+    over_k = k * _OVER_FETCH
+    penalty = over_k + 1
+    filter_conds = _filter_conditions(filters)
+
+    # --- Vector arm: top-over_k by cosine distance ---
+    dist = PassageEmbedding.embedding.cosine_distance(query_embedding)
+    vec_q = (
+        select(
+            PassageEmbedding.passage_id.label("pid"),
+            func.row_number().over(order_by=dist.asc()).label("rk"),
+        )
+        .join(Passage, Passage.id == PassageEmbedding.passage_id)
+        .join(Work, Work.id == PassageEmbedding.work_id)
+        .join(Source, Source.id == Work.source_id)
+        .where(PassageEmbedding.embedding_model == EMBEDDING_MODEL)
+        .order_by(dist.asc())
+        .limit(over_k)
+    )
+    if filter_conds:
+        vec_q = vec_q.where(and_(*filter_conds))
+    vec_cte = vec_q.cte("vector_ranked")
+
+    # --- FTS arm: top-over_k by ts_rank ---
+    # text("'english'") emits a SQL literal so Postgres can match the GIN index expression
+    lang = text("'english'")
+    ts_vec = func.to_tsvector(lang, Passage.cleaned_text)
+    ts_qry = func.plainto_tsquery(lang, query)
+    ts_rank_expr = func.ts_rank(ts_vec, ts_qry)
+    fts_q = (
+        select(
+            Passage.id.label("pid"),
+            func.row_number().over(order_by=ts_rank_expr.desc()).label("rk"),
+        )
+        .join(Work, Work.id == Passage.work_id)
+        .join(Source, Source.id == Work.source_id)
+        .where(ts_vec.op("@@")(ts_qry))
+        .order_by(ts_rank_expr.desc())
+        .limit(over_k)
+    )
+    if filter_conds:
+        fts_q = fts_q.where(and_(*filter_conds))
+    fts_cte = fts_q.cte("fts_ranked")
+
+    # --- RRF merge: FULL OUTER JOIN, penalise missing arm ---
+    pid_col = func.coalesce(vec_cte.c.pid, fts_cte.c.pid).label("pid")
+    rrf_score = (
+        literal_column("1.0") / (literal_column(str(_RRF_K)) + func.coalesce(vec_cte.c.rk, penalty))
+        + literal_column("1.0") / (literal_column(str(_RRF_K)) + func.coalesce(fts_cte.c.rk, penalty))
+    ).label("rrf_score")
+    merged_cte = (
+        select(pid_col, rrf_score)
+        .select_from(vec_cte.outerjoin(fts_cte, vec_cte.c.pid == fts_cte.c.pid, full=True))
+        .order_by(rrf_score.desc())
+        .limit(k)
+        .cte("merged")
+    )
+
+    # --- Fetch passage details for merged results ---
+    final_q = (
+        select(
+            merged_cte.c.pid.label("passage_id"),
+            Work.id.label("work_id"),
+            Passage.citation_string,
+            Passage.cleaned_text,
+            merged_cte.c.rrf_score,
+        )
+        .join(Passage, Passage.id == merged_cte.c.pid)
+        .join(Work, Work.id == Passage.work_id)
+        .order_by(merged_cte.c.rrf_score.desc())
+    )
+
+    rows = session.execute(final_q).all()
+    return [
+        {
+            "passage_id": str(r.passage_id),
+            "work_id": str(r.work_id),
+            "citation_string": r.citation_string,
+            "cleaned_text": r.cleaned_text,
+            "rrf_score": float(r.rrf_score),
+        }
+        for r in rows
+    ]
+
+
 @router.post("/search")
 def search(
     body: SearchRequest,
@@ -150,7 +247,7 @@ def search(
         )
 
     q_vec = encode_query_vector(q)
-    rows = retrieve_passages_similarity(session, q_vec, body.k, body.filters)
+    rows = retrieve_passages_hybrid(session, q, q_vec, body.k, body.filters)
 
     results = [
         {
@@ -158,14 +255,14 @@ def search(
             "work_id": r["work_id"],
             "citation_string": r["citation_string"],
             "cleaned_text_snippet": snippet_from_cleaned(r["cleaned_text"]),
-            "score": r["score"],
+            "rrf_score": r["rrf_score"],
         }
         for r in rows
     ]
 
     return {
         "results": results,
-        "meta": {"k": body.k, "embedding_model": EMBEDDING_MODEL},
+        "meta": {"k": body.k, "embedding_model": EMBEDDING_MODEL, "retrieval": "hybrid"},
     }
 
 
@@ -174,6 +271,7 @@ __all__ = [
     "SearchFilters",
     "SearchRequest",
     "get_encode_query_vector",
+    "retrieve_passages_hybrid",
     "retrieve_passages_similarity",
     "router",
     "snippet_from_cleaned",

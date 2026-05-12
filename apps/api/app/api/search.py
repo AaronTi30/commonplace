@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 SNIPPET_MAX = 300
 _RRF_K = 60  # standard RRF constant; no tuning needed
-_OVER_FETCH = 4  # fetch 4k candidates per arm before merging to top-k
+_OVER_FETCH = 4  # fetch 4× k candidates per arm before merging to top-k
 
 EncodeQueryVector = Callable[[str], list[float]]
 
@@ -167,7 +167,9 @@ def retrieve_passages_hybrid(
     vec_cte = vec_q.cte("vector_ranked")
 
     # --- FTS arm: top-over_k by ts_rank ---
-    # text("'english'") emits a SQL literal so Postgres can match the GIN index expression
+    # text("'english'") emits a SQL literal so Postgres can match the GIN index expression.
+    # PassageEmbedding is not joined here: the ingest pipeline guarantees every passage
+    # has an embedding before the job completes, so unembedded passages cannot appear.
     lang = text("'english'")
     ts_vec = func.to_tsvector(lang, Passage.cleaned_text)
     ts_qry = func.plainto_tsquery(lang, query)

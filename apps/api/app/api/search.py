@@ -117,7 +117,7 @@ def retrieve_passages_similarity(
     filters: SearchFilters | None,
 ) -> list[dict[str, Any]]:
     """
-    Top-k passages by cosine similarity (full ``cleaned_text``), for search + ask.
+    Top-k passages by cosine similarity (full ``cleaned_text``), for Ask.
     """
     stmt = _search_select(query_embedding, k, filters)
     rows = session.execute(stmt).all()
@@ -145,10 +145,12 @@ def retrieve_passages_hybrid(
     Only used by the search endpoint; Ask keeps pure vector retrieval.
     """
     over_k = k * _OVER_FETCH
-    penalty = over_k + 1
+    penalty = over_k + 1  # standard RRF: passages absent from an arm get rank pool_size+1
     filter_conds = _filter_conditions(filters)
 
     # --- Vector arm: top-over_k by cosine distance ---
+    # ORDER BY + LIMIT selects the top-over_k rows; ROW_NUMBER() assigns stable ranks
+    # 1–over_k within that ordered set for RRF. Both must use the same sort expression.
     dist = PassageEmbedding.embedding.cosine_distance(query_embedding)
     vec_q = (
         select(
@@ -174,6 +176,7 @@ def retrieve_passages_hybrid(
     ts_vec = func.to_tsvector(lang, Passage.cleaned_text)
     ts_qry = func.plainto_tsquery(lang, query)
     ts_rank_expr = func.ts_rank(ts_vec, ts_qry)
+    # Same pattern: ORDER BY + LIMIT selects top-over_k by ts_rank; ROW_NUMBER() ranks them.
     fts_q = (
         select(
             Passage.id.label("pid"),

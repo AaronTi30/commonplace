@@ -1,17 +1,27 @@
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from app.db.models import SourceType
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import Session
 
 from app.api.errors import error
 from app.db.deps import get_db_session
-from app.db.models import Passage, PassageEmbedding, Source, Work
+from app.db.models import Passage, PassageEmbedding, Source, SourceArtifact, SourceType, Work
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["works"])
+
+
+class PatchWorkBody(BaseModel):
+    title: str | None = Field(default=None)
+    author: str | None = Field(default=None)
+    language: str | None = Field(default=None)
 
 
 @router.get("/works")
@@ -117,6 +127,40 @@ def get_work(
     }
 
 
+def _work_list_row_dict(work: Work, source: Source) -> dict:
+    return {
+        "work_id": work.id,
+        "title": work.title,
+        "author": work.author,
+        "language": work.language,
+        "source_type": source.source_type.value,
+        "ingestion_state": work.ingestion_state.value,
+        "ingested_at": work.ingested_at,
+        "created_at": work.created_at,
+    }
+
+
+@router.patch("/works/{work_id}")
+def patch_work(
+    work_id: uuid.UUID,
+    body: PatchWorkBody,
+    session: Session = Depends(get_db_session),
+) -> dict:
+    work = session.get(Work, work_id)
+    if not work:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
+
+    updates = body.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        setattr(work, key, value)
+    session.flush()
+
+    source = session.get(Source, work.source_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error("server_error", "work has no source"))
+    return {"work": _work_list_row_dict(work, source)}
+
+
 @router.delete("/works/{work_id}")
 def delete_work(work_id: uuid.UUID, session: Session = Depends(get_db_session)) -> dict:
     """
@@ -131,6 +175,24 @@ def delete_work(work_id: uuid.UUID, session: Session = Depends(get_db_session)) 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
 
     source_id = work.source_id
+    source = session.get(Source, source_id)
+    if source and source.source_type in (SourceType.epub, SourceType.pdf):
+        artifact = session.scalar(
+            select(SourceArtifact)
+            .where(SourceArtifact.source_id == source.id)
+            .order_by(SourceArtifact.created_at.desc())
+            .limit(1)
+        )
+        if artifact and artifact.raw_file_path:
+            fp = artifact.raw_file_path
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                parent = os.path.dirname(fp)
+                if os.path.isdir(parent) and not os.listdir(parent):
+                    os.rmdir(parent)
+            except OSError as exc:
+                logger.warning("upload file cleanup failed for %s: %s", fp, exc)
 
     # Delete child rows first. `passage_embeddings.work_id` is a RESTRICT FK, so we must
     # remove embeddings (or passages which cascade to embeddings) before deleting Work.

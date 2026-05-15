@@ -27,6 +27,8 @@ from app.db.base import Base
 class SourceType(str, enum.Enum):
     gutenberg = "gutenberg"
     wikisource = "wikisource"
+    epub = "epub"
+    pdf = "pdf"
 
 
 class IngestionState(str, enum.Enum):
@@ -96,6 +98,7 @@ class SourceArtifact(Base):
     content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     parser_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -107,7 +110,7 @@ class SourceArtifact(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "((raw_text IS NULL) <> (raw_html IS NULL))",
+            "((raw_text IS NOT NULL)::int + (raw_html IS NOT NULL)::int + (raw_file_path IS NOT NULL)::int) = 1",
             name="ck_source_artifacts_exactly_one_raw",
         ),
     )

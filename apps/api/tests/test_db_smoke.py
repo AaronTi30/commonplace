@@ -16,7 +16,7 @@ def test_db_smoke(db_session):
         {"id": source_id},
     )
 
-    # source_artifacts: exactly one of raw_text/raw_html
+    # source_artifacts: exactly one of raw_text / raw_html / raw_file_path
     db_session.execute(
         text(
             """
@@ -25,6 +25,31 @@ def test_db_smoke(db_session):
             """
         ),
         {"id": uuid.uuid4(), "source_id": source_id, "raw_text": "Hello world"},
+    )
+
+    epub_source_id = uuid.uuid4()
+    db_session.execute(
+        text(
+            """
+            INSERT INTO sources (id, source_type, locator, canonical_url)
+            VALUES (:id, 'epub', 'deadbeef', 'file://fixture.epub')
+            """
+        ),
+        {"id": epub_source_id},
+    )
+    db_session.execute(
+        text(
+            """
+            INSERT INTO source_artifacts (id, source_id, raw_file_path, http_status, content_sha256)
+            VALUES (:id, :source_id, :path, 200, :sha)
+            """
+        ),
+        {
+            "id": uuid.uuid4(),
+            "source_id": epub_source_id,
+            "path": "/tmp/commonplace_fixture.epub",
+            "sha": "a" * 64,
+        },
     )
 
     # works

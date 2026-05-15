@@ -22,6 +22,8 @@ from app.db.models import (
 )
 from app.ingest.chunk import CHUNKER_VERSION, chunk_normalized_text
 from app.ingest.embed import EMBEDDING_DIM, EMBEDDING_MODEL, embed_passages_for_work
+from app.ingest.extract_epub import extract_epub_metadata, extract_epub_text
+from app.ingest.extract_pdf import extract_pdf_metadata, extract_pdf_text
 from app.ingest.fetch_gutenberg import ArtifactFetchResult, fetch_gutenberg
 from app.ingest.fetch_wikisource import fetch_wikisource
 from app.ingest.metadata import WorkMetadata, extract_gutenberg_metadata, extract_wikisource_metadata, fetch_gutenberg_metadata_api
@@ -302,11 +304,37 @@ def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> N
     update_ingestion_job_progress(session, job_id, ProgressStage.fetch, fetched=0)
     artifact = _latest_ok_artifact(session, source_id=source.id)
     if artifact is None:
+        if source_type in (SourceType.epub, SourceType.pdf):
+            raise RuntimeError(
+                "missing uploaded file for this work; use POST /api/ingest/upload for epub and pdf"
+            )
         artifact = _fetch_and_store_artifact(session, work=work, source_type=source_type)
     update_ingestion_job_progress(session, job_id, ProgressStage.fetch, fetched=1)
 
     update_ingestion_job_progress(session, job_id, ProgressStage.normalize)
-    raw = _load_raw_from_artifact(artifact)
+    if source_type == SourceType.epub:
+        path = artifact.raw_file_path
+        if not path:
+            raise RuntimeError("epub artifact has no raw_file_path")
+        if not os.path.isfile(path):
+            raise RuntimeError(f"file not found at {path}")
+        try:
+            normalized = extract_epub_text(path)
+        except Exception as exc:
+            raise RuntimeError(f"EPUB parse failed: {exc!r}") from exc
+    elif source_type == SourceType.pdf:
+        path = artifact.raw_file_path
+        if not path:
+            raise RuntimeError("pdf artifact has no raw_file_path")
+        if not os.path.isfile(path):
+            raise RuntimeError(f"file not found at {path}")
+        try:
+            normalized = extract_pdf_text(path)
+        except Exception as exc:
+            raise RuntimeError(f"PDF parse failed: {exc!r}") from exc
+    else:
+        raw = _load_raw_from_artifact(artifact)
+        normalized = normalized_plaintext_for_chunking(raw, source_type.value)
 
     # Best-effort metadata extraction (improves UI + citation strings).
     if source_type == SourceType.gutenberg:
@@ -322,6 +350,16 @@ def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> N
             )
     elif source_type == SourceType.wikisource and artifact.raw_html is not None:
         md = extract_wikisource_metadata(canonical_locator=source.locator, raw_html=artifact.raw_html)
+    elif source_type == SourceType.epub and artifact.raw_file_path:
+        try:
+            md = extract_epub_metadata(artifact.raw_file_path)
+        except Exception:
+            md = None
+    elif source_type == SourceType.pdf and artifact.raw_file_path:
+        try:
+            md = extract_pdf_metadata(artifact.raw_file_path)
+        except Exception:
+            md = None
     else:
         md = None
 
@@ -332,8 +370,6 @@ def run_ingest_job(session: Session, job_id: uuid.UUID, work_id: uuid.UUID) -> N
             work.author = md.author
         if md.language and not work.language:
             work.language = md.language
-
-    normalized = normalized_plaintext_for_chunking(raw, source_type.value)
 
     update_ingestion_job_progress(session, job_id, ProgressStage.chunk)
     chunks = chunk_normalized_text(

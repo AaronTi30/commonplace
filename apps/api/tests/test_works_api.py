@@ -94,3 +94,91 @@ def test_delete_work_removes_work_and_source(client, db_session):
 def test_delete_work_404(client, db_session):
     resp = client.delete(f"/api/works/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+def test_patch_work_updates_fields(client, db_session):
+    work_id, _ = _seed_work(db_session, author="A", title="B")
+    resp = client.patch(f"/api/works/{work_id}", json={"title": "New Title"})
+    assert resp.status_code == 200
+    w = resp.json()["work"]
+    assert w["title"] == "New Title"
+    assert w["author"] == "A"
+
+    r2 = client.get(f"/api/works/{work_id}")
+    assert r2.json()["work"]["title"] == "New Title"
+
+
+def test_patch_work_404(client, db_session):
+    resp = client.patch(f"/api/works/{uuid.uuid4()}", json={"title": "X"})
+    assert resp.status_code == 404
+
+
+def test_delete_epub_removes_upload_file(client, db_session, tmp_path):
+    path = tmp_path / "book.epub"
+    path.write_bytes(b"%PDF-epub-test-bytes")
+    source_id = uuid.uuid4()
+    work_id = uuid.uuid4()
+    art_id = uuid.uuid4()
+    digest = "b" * 64
+    db_session.execute(
+        text(
+            "INSERT INTO sources (id, source_type, locator, canonical_url) "
+            "VALUES (:id,'epub',:loc,'file://book.epub')"
+        ),
+        {"id": source_id, "loc": digest},
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO works (id, source_id, title, author, ingestion_state) "
+            "VALUES (:id,:s,'T','A','complete')"
+        ),
+        {"id": work_id, "s": source_id},
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO source_artifacts (id, source_id, raw_file_path, http_status, content_sha256) "
+            "VALUES (:id,:s,:p,200,:sha)"
+        ),
+        {"id": art_id, "s": source_id, "p": str(path), "sha": digest},
+    )
+    db_session.flush()
+    assert path.is_file()
+
+    resp = client.delete(f"/api/works/{work_id}")
+    assert resp.status_code == 200
+    assert not path.is_file()
+
+
+def test_delete_epub_succeeds_when_upload_file_already_missing(client, db_session, tmp_path):
+    missing = tmp_path / "gone.epub"
+    source_id = uuid.uuid4()
+    work_id = uuid.uuid4()
+    art_id = uuid.uuid4()
+    digest = "c" * 64
+    db_session.execute(
+        text(
+            "INSERT INTO sources (id, source_type, locator, canonical_url) "
+            "VALUES (:id,'epub',:loc,'file://gone.epub')"
+        ),
+        {"id": source_id, "loc": digest},
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO works (id, source_id, title, author, ingestion_state) "
+            "VALUES (:id,:s,'T','A','complete')"
+        ),
+        {"id": work_id, "s": source_id},
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO source_artifacts (id, source_id, raw_file_path, http_status, content_sha256) "
+            "VALUES (:id,:s,:p,200,:sha)"
+        ),
+        {"id": art_id, "s": source_id, "p": str(missing), "sha": digest},
+    )
+    db_session.flush()
+    assert not missing.exists()
+
+    resp = client.delete(f"/api/works/{work_id}")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True

@@ -58,12 +58,16 @@ def normalized_plaintext_for_chunking(raw: str, source_type: str) -> str:
     """
     Route raw artifact bytes to the correct normalizer before chunking.
 
-    ``source_type`` is ``\"gutenberg\"`` or ``\"wikisource\"`` (enum value strings).
+    ``source_type`` is ``\"gutenberg\"``, ``\"wikisource\"``, ``\"epub\"``, or ``\"pdf\"``
+    (enum value strings). EPUB/PDF are normalized in the worker via extractors; this
+    entrypoint is only used for remote fetch payloads.
     """
     if source_type == "gutenberg":
         return normalize_gutenberg_plaintext(raw)
     if source_type == "wikisource":
         return normalize_wikisource_html(raw)
+    if source_type in {"epub", "pdf"}:
+        raise ValueError("epub/pdf plaintext is produced by extract_epub_text / extract_pdf_text")
     raise ValueError(f"unsupported source_type: {source_type!r}")
 
 

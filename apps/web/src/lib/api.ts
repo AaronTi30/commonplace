@@ -82,6 +82,29 @@ export async function ingest(body: {
   return apiFetch("/api/ingest", { method: "POST", json: body });
 }
 
+export async function uploadIngest(params: {
+  file: File;
+  title?: string;
+  author?: string;
+  language?: string;
+}): Promise<{ work_id: string; job_id: string | null }> {
+  const form = new FormData();
+  form.append("file", params.file);
+  if (params.title?.trim()) form.append("title", params.title.trim());
+  if (params.author?.trim()) form.append("author", params.author.trim());
+  if (params.language?.trim()) form.append("language", params.language.trim());
+
+  const res = await fetch(`${API_BASE_URL}/api/ingest/upload`, {
+    method: "POST",
+    body: form
+  });
+  const data = await parseJson(res);
+  if (!res.ok) {
+    throw new ApiError(res.status, data);
+  }
+  return data as { work_id: string; job_id: string | null };
+}
+
 export type JobResponse = {
   job_id: string;
   status: string;
@@ -117,6 +140,13 @@ export async function getWork(
   if (opts?.limit != null) q.set("limit", String(opts.limit));
   const qs = q.toString();
   return apiFetch(`/api/works/${workId}${qs ? `?${qs}` : ""}`);
+}
+
+export async function patchWork(
+  workId: string,
+  body: { title?: string | null; author?: string | null; language?: string | null }
+): Promise<{ work: WorkSummary }> {
+  return apiFetch(`/api/works/${workId}`, { method: "PATCH", json: body });
 }
 
 export async function deleteWork(workId: string): Promise<{ deleted: boolean; work_id: string }> {

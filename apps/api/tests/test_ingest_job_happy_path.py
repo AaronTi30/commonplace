@@ -19,6 +19,7 @@ from app.db.models import (
 )
 from app.ingest.embed import EMBEDDING_DIM
 from app.ingest.fetch_gutenberg import ArtifactFetchResult
+from app.ingest.metadata import WorkMetadata
 from app.worker.worker import run_ingest_job
 
 
@@ -85,6 +86,10 @@ def test_run_ingest_job_fetch_chunk_embed_progress(monkeypatch, db_session):
         "*** END OF THE PROJECT GUTENBERG EBOOK DEMO ***\n"
     )
     monkeypatch.setattr("app.worker.worker.fetch_gutenberg", _fake_fetch(body))
+    monkeypatch.setattr(
+        "app.worker.worker.fetch_gutenberg_metadata_api",
+        lambda locator_id, timeout=10.0: WorkMetadata(),
+    )
 
     def fake_encode(texts: list[str]) -> list[list[float]]:
         return [[0.001] * EMBEDDING_DIM for _ in texts]

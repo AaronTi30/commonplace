@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json as _json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -149,3 +151,56 @@ def ask(
         "cited_passage_ids": cited,
         "meta": base_meta,
     }
+
+
+@router.post("/ask/stream")
+async def ask_stream(
+    body: AskRequest,
+    session: Session = Depends(get_db_session),
+    encode_query_vector: EncodeQueryVector = Depends(get_encode_query_vector),
+    ollama: OllamaClient = Depends(get_ollama_client),
+) -> StreamingResponse:
+    """Stream a fluent-mode answer as Server-Sent Events."""
+    q = body.query.strip()
+    if not q:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error("invalid_query", "query must not be empty"),
+        )
+    if body.k < 1 or body.k > 20:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error("invalid_k", "k must be between 1 and 20 for /api/ask/stream"),
+        )
+
+    q_vec = encode_query_vector(q)
+    retrieved = retrieve_passages_similarity(session, q_vec, body.k, body.filters)
+    prompt = build_fluent_prompt(q, retrieved)
+
+    ts = datetime.now(timezone.utc).isoformat()
+    base_meta: dict[str, Any] = {
+        "k": body.k,
+        "mode": "fluent",
+        "embedding_model": EMBEDDING_MODEL,
+        "llm_model": settings.ollama_model,
+        "timestamp": ts,
+    }
+    if body.filters is not None:
+        base_meta["filters"] = body.filters.model_dump(mode="json")
+
+    async def generate():
+        yield f"data: {_json.dumps({'type': 'passages', 'retrieved_passages': retrieved, 'meta': base_meta})}\n\n"
+        accumulated: list[str] = []
+        try:
+            async for token in ollama.stream_generate(prompt):
+                accumulated.append(token)
+                yield f"data: {_json.dumps({'type': 'token', 'text': token})}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return
+
+        full_text = "".join(accumulated)
+        cited = cited_passage_ids_from_fluent_markdown(full_text, retrieved)
+        yield f"data: {_json.dumps({'type': 'done', 'cited_passage_ids': cited, 'meta': base_meta})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

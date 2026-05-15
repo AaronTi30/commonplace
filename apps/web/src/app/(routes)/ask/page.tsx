@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { ApiError, ask } from "@/lib/api";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ApiError, RetrievedPassage, ask, streamAsk } from "@/lib/api";
 import { MarkdownBody } from "@/components/markdown-body";
 
 export default function AskPage() {
@@ -12,13 +12,16 @@ export default function AskPage() {
   const [sourceFilter, setSourceFilter] = useState<"" | "gutenberg" | "wikisource">("");
   const [author, setAuthor] = useState("");
 
-  const filters =
-    sourceFilter || author.trim()
-      ? {
-          ...(sourceFilter ? { source_type: [sourceFilter] as ("gutenberg" | "wikisource")[] } : {}),
-          ...(author.trim() ? { author: [author.trim()] } : {})
-        }
-      : undefined;
+  const filters = useMemo(
+    () =>
+      sourceFilter || author.trim()
+        ? {
+            ...(sourceFilter ? { source_type: [sourceFilter] as ("gutenberg" | "wikisource")[] } : {}),
+            ...(author.trim() ? { author: [author.trim()] } : {})
+          }
+        : undefined,
+    [sourceFilter, author]
+  );
 
   const mut = useMutation({
     mutationFn: () =>
@@ -30,8 +33,57 @@ export default function AskPage() {
       })
   });
 
-  const data = mut.data;
-  const cited = new Set(data?.cited_passage_ids ?? []);
+  // Fluent streaming state
+  const [streamPhase, setStreamPhase] = useState<"idle" | "streaming" | "done" | "error">("idle");
+  const [streamingText, setStreamingText] = useState("");
+  const [streamedPassages, setStreamedPassages] = useState<RetrievedPassage[]>([]);
+  const [streamedCitedIds, setStreamedCitedIds] = useState<string[]>([]);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleSubmit = useCallback(async () => {
+    if (mode === "strict") {
+      mut.mutate();
+      return;
+    }
+
+    setStreamPhase("streaming");
+    setStreamingText("");
+    setStreamedPassages([]);
+    setStreamedCitedIds([]);
+    setStreamError(null);
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      await streamAsk(
+        { query: q.trim(), k, ...(filters ? { filters } : {}) },
+        {
+          onPassages: (passages) => setStreamedPassages(passages),
+          onToken: (text) => setStreamingText((prev) => prev + text),
+          onDone: (citedIds) => {
+            setStreamedCitedIds(citedIds);
+            setStreamPhase("done");
+          },
+          onError: (msg) => {
+            setStreamError(msg);
+            setStreamPhase("error");
+          }
+        },
+        ctrl.signal
+      );
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") {
+        setStreamPhase("done");
+      } else {
+        setStreamError(e instanceof Error ? e.message : "Request failed");
+        setStreamPhase("error");
+      }
+    } finally {
+      abortRef.current = null;
+    }
+  }, [mode, q, k, filters, mut]);
 
   return (
     <div className="space-y-8">
@@ -101,82 +153,126 @@ export default function AskPage() {
         </div>
         <button
           type="button"
-          disabled={mut.isPending || !q.trim()}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          onClick={() => mut.mutate()}
+          disabled={mode === "strict" ? mut.isPending || !q.trim() : streamPhase !== "streaming" && !q.trim()}
+          onClick={mode === "fluent" && streamPhase === "streaming" ? () => abortRef.current?.abort() : handleSubmit}
         >
-          {mut.isPending ? "Asking…" : "Ask"}
+          {mode === "strict" && mut.isPending
+            ? "Asking…"
+            : mode === "fluent" && streamPhase === "streaming"
+            ? "Stop"
+            : "Ask"}
         </button>
-        {mut.isError && (
+        {mode === "strict" && mut.isError && (
           <p className="text-sm text-red-700">
             {(mut.error as ApiError)?.messageFromApi?.() ?? "Request failed"}
           </p>
         )}
+        {mode === "fluent" && streamPhase === "error" && streamError && (
+          <p className="text-sm text-red-700">{streamError}</p>
+        )}
       </div>
 
-      {data && (
+      {mode === "strict" &&
+        mut.data &&
+        (() => {
+          const data = mut.data;
+          const cited = new Set(data.cited_passage_ids ?? []);
+          return (
+            <div className="grid gap-8 lg:grid-cols-2">
+              <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Answer</h2>
+                <MarkdownBody content={data.answer_markdown} className="mt-3" />
+                <dl className="mt-6 space-y-1 text-xs text-zinc-500">
+                  <div>
+                    <dt className="inline font-medium">Embedding:</dt>{" "}
+                    <dd className="inline">{String(data.meta.embedding_model)}</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">LLM:</dt>{" "}
+                    <dd className="inline">{String(data.meta.llm_model)}</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">k:</dt>{" "}
+                    <dd className="inline">{String(data.meta.k)}</dd>
+                  </div>
+                  {"strict_validation" in data.meta && data.meta.strict_validation != null && (
+                    <div>
+                      <dt className="inline font-medium">Validation:</dt>{" "}
+                      <dd className="inline font-mono text-[11px]">
+                        {JSON.stringify(data.meta.strict_validation)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
+
+              <section>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  Evidence ({data.retrieved_passages.length} passages)
+                </h2>
+                <ul className="mt-3 space-y-3">
+                  {data.retrieved_passages.map((p, i) => (
+                    <li
+                      key={p.passage_id}
+                      className={`rounded-lg border p-3 text-sm ${
+                        cited.has(p.passage_id) ? "border-indigo-300 bg-indigo-50/60" : "border-zinc-200 bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-zinc-500">
+                          [{i + 1}] · score {p.score.toFixed(4)}
+                        </span>
+                        {cited.has(p.passage_id) && (
+                          <span className="text-[10px] font-semibold uppercase text-indigo-600">Cited</span>
+                        )}
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-zinc-800">{p.cleaned_text}</p>
+                      <p className="mt-2 text-xs text-zinc-500">{p.citation_string}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+          );
+        })()}
+
+      {mode === "fluent" && streamPhase !== "idle" && (
         <div className="grid gap-8 lg:grid-cols-2">
           <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Answer</h2>
-            <MarkdownBody content={data.answer_markdown} className="mt-3" />
-            <dl className="mt-6 space-y-1 text-xs text-zinc-500">
-              <div>
-                <dt className="inline font-medium">Embedding:</dt>{" "}
-                <dd className="inline">{String(data.meta.embedding_model)}</dd>
-              </div>
-              <div>
-                <dt className="inline font-medium">LLM:</dt>{" "}
-                <dd className="inline">{String(data.meta.llm_model)}</dd>
-              </div>
-              <div>
-                <dt className="inline font-medium">k:</dt>{" "}
-                <dd className="inline">{String(data.meta.k)}</dd>
-              </div>
-              {"timestamp" in data.meta && (
-                <div>
-                  <dt className="inline font-medium">Time:</dt>{" "}
-                  <dd className="inline">{String(data.meta.timestamp)}</dd>
-                </div>
-              )}
-              {"strict_validation" in data.meta && data.meta.strict_validation != null && (
-                <div>
-                  <dt className="inline font-medium">Validation:</dt>{" "}
-                  <dd className="inline font-mono text-[11px]">
-                    {JSON.stringify(data.meta.strict_validation)}
-                  </dd>
-                </div>
-              )}
-            </dl>
+            {streamingText ? (
+              <MarkdownBody content={streamingText} className="mt-3" />
+            ) : (
+              <p className="mt-3 text-sm text-zinc-400 italic">Generating…</p>
+            )}
+            {streamPhase === "streaming" && <span className="mt-2 inline-block h-4 w-0.5 animate-pulse bg-zinc-400" />}
           </section>
-
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-              Evidence ({data.retrieved_passages.length} passages)
+              Evidence ({streamedPassages.length} passages)
             </h2>
             <ul className="mt-3 space-y-3">
-              {data.retrieved_passages.map((p, i) => (
-                <li
-                  key={p.passage_id}
-                  className={`rounded-lg border p-3 text-sm ${
-                    cited.has(p.passage_id)
-                      ? "border-indigo-300 bg-indigo-50/60"
-                      : "border-zinc-200 bg-white"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-zinc-500">
-                      [{i + 1}] · score {p.score.toFixed(4)}
-                    </span>
-                    {cited.has(p.passage_id) && (
-                      <span className="text-[10px] font-semibold uppercase text-indigo-600">
-                        Cited
+              {streamedPassages.map((p, i) => {
+                const isCited = streamedCitedIds.includes(p.passage_id);
+                return (
+                  <li
+                    key={p.passage_id}
+                    className={`rounded-lg border p-3 text-sm ${
+                      isCited ? "border-indigo-300 bg-indigo-50/60" : "border-zinc-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-zinc-500">
+                        [{i + 1}] · score {p.score.toFixed(4)}
                       </span>
-                    )}
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-zinc-800">{p.cleaned_text}</p>
-                  <p className="mt-2 text-xs text-zinc-500">{p.citation_string}</p>
-                </li>
-              ))}
+                      {isCited && <span className="text-[10px] font-semibold uppercase text-indigo-600">Cited</span>}
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-zinc-800">{p.cleaned_text}</p>
+                    <p className="mt-2 text-xs text-zinc-500">{p.citation_string}</p>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         </div>

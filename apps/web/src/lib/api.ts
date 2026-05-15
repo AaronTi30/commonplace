@@ -170,3 +170,77 @@ export async function ask(body: {
 }> {
   return apiFetch("/api/ask", { method: "POST", json: body });
 }
+
+export type StreamAskCallbacks = {
+  onPassages: (passages: RetrievedPassage[], meta: Record<string, unknown>) => void;
+  onToken: (text: string) => void;
+  onDone: (citedIds: string[], meta: Record<string, unknown>) => void;
+  onError: (message: string) => void;
+};
+
+export async function streamAsk(
+  body: {
+    query: string;
+    k?: number;
+    filters?: {
+      source_type?: string[];
+      author?: string[];
+      work_ids?: string[];
+      language?: string[];
+    };
+  },
+  callbacks: StreamAskCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/ask/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, mode: "fluent" }),
+    signal
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const msg =
+      (data as { error?: { message?: string } } | null)?.error?.message ?? `HTTP ${res.status}`;
+    callbacks.onError(msg);
+    return;
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6)) as {
+          type: string;
+          text?: string;
+          retrieved_passages?: RetrievedPassage[];
+          cited_passage_ids?: string[];
+          meta?: Record<string, unknown>;
+          message?: string;
+        };
+        if (event.type === "passages") {
+          callbacks.onPassages(event.retrieved_passages ?? [], event.meta ?? {});
+        } else if (event.type === "token") {
+          callbacks.onToken(event.text ?? "");
+        } else if (event.type === "done") {
+          callbacks.onDone(event.cited_passage_ids ?? [], event.meta ?? {});
+        } else if (event.type === "error") {
+          callbacks.onError(event.message ?? "Unknown error");
+        }
+      } catch {
+        // malformed SSE line — skip
+      }
+    }
+  }
+}

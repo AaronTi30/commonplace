@@ -15,3 +15,9 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* epub.js mount chain — avoid rules on iframe/content (breaks column pagination) */
+.epub-viewer > div {
+  height: 100%;
+  width: 100%;
+}

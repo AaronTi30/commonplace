@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import uuid
 
 from sqlalchemy import text
@@ -182,3 +184,139 @@ def test_delete_epub_succeeds_when_upload_file_already_missing(client, db_sessio
     resp = client.delete(f"/api/works/{work_id}")
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
+
+
+def _seed_epub_work_with_file(db_session) -> tuple[uuid.UUID, str]:
+    """Seed a complete epub work with a real file on disk. Returns (work_id, file_path)."""
+    from app.db.models import IngestionState, Source, SourceArtifact, SourceType, Work
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".epub", delete=False)
+    tmp.write(b"fake epub content")
+    tmp.close()
+    file_path = tmp.name
+
+    source = Source(
+        id=uuid.uuid4(),
+        source_type=SourceType.epub,
+        locator="abc123",
+        canonical_url="file://test.epub",
+    )
+    work = Work(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        title="Test Book",
+        author="Test Author",
+        ingestion_state=IngestionState.complete,
+    )
+    artifact = SourceArtifact(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        http_status=200,
+        raw_file_path=file_path,
+    )
+    db_session.add_all([source, work, artifact])
+    return work.id, file_path
+
+
+def test_get_work_file_returns_file_for_epub(client, db_session):
+    work_id, file_path = _seed_epub_work_with_file(db_session)
+    try:
+        r = client.get(f"/api/works/{work_id}/file")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/epub+zip"
+        assert r.content == b"fake epub content"
+    finally:
+        os.unlink(file_path)
+
+
+def test_get_work_file_404_for_gutenberg(client, db_session):
+    from app.db.models import IngestionState, Source, SourceArtifact, SourceType, Work
+
+    source = Source(
+        id=uuid.uuid4(),
+        source_type=SourceType.gutenberg,
+        locator="1342",
+        canonical_url="https://gutenberg.org/1342",
+    )
+    work = Work(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        ingestion_state=IngestionState.complete,
+    )
+    artifact = SourceArtifact(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        http_status=200,
+        raw_text="raw text here",
+    )
+    db_session.add_all([source, work, artifact])
+    r = client.get(f"/api/works/{work.id}/file")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "file_not_available"
+
+
+def test_get_work_file_404_when_file_missing_from_disk(client, db_session):
+    work_id, file_path = _seed_epub_work_with_file(db_session)
+    os.unlink(file_path)
+    r = client.get(f"/api/works/{work_id}/file")
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "file_not_found"
+
+
+def _seed_minimal_work(db_session) -> uuid.UUID:
+    from app.db.models import IngestionState, Source, SourceType, Work
+
+    source = Source(
+        id=uuid.uuid4(),
+        source_type=SourceType.gutenberg,
+        locator=str(uuid.uuid4()),
+        canonical_url="https://example.com",
+    )
+    work = Work(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        ingestion_state=IngestionState.complete,
+    )
+    db_session.add_all([source, work])
+    return work.id
+
+
+def test_get_progress_returns_null_when_no_progress(client, db_session):
+    work_id = _seed_minimal_work(db_session)
+    r = client.get(f"/api/works/{work_id}/progress")
+    assert r.status_code == 200
+    assert r.json() == {"position": None}
+
+
+def test_put_then_get_progress_round_trips(client, db_session):
+    work_id = _seed_minimal_work(db_session)
+    cfi = "epubcfi(/6/4[chap01]!/4/2/1:0)"
+
+    r = client.put(f"/api/works/{work_id}/progress", json={"position": cfi})
+    assert r.status_code == 200
+    assert r.json() == {"position": cfi}
+
+    r2 = client.get(f"/api/works/{work_id}/progress")
+    assert r2.status_code == 200
+    assert r2.json() == {"position": cfi}
+
+
+def test_put_progress_twice_overwrites(client, db_session):
+    work_id = _seed_minimal_work(db_session)
+
+    client.put(f"/api/works/{work_id}/progress", json={"position": "epubcfi(/6/2)"})
+    r = client.put(f"/api/works/{work_id}/progress", json={"position": "epubcfi(/6/8)"})
+    assert r.status_code == 200
+
+    r2 = client.get(f"/api/works/{work_id}/progress")
+    assert r2.json()["position"] == "epubcfi(/6/8)"
+
+
+def test_get_progress_404_for_missing_work(client, db_session):
+    r = client.get(f"/api/works/{uuid.uuid4()}/progress")
+    assert r.status_code == 404
+
+
+def test_put_progress_404_for_missing_work(client, db_session):
+    r = client.put(f"/api/works/{uuid.uuid4()}/progress", json={"position": "42"})
+    assert r.status_code == 404

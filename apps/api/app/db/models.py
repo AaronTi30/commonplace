@@ -205,6 +205,18 @@ class PassageEmbedding(Base):
     )
 
 
+class ReadingProgress(Base):
+    __tablename__ = "reading_progress"
+
+    work_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("works.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    position: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
 

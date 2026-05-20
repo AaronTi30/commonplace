@@ -358,6 +358,14 @@ export default function CorpusPage() {
                 )}
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                   <span className="text-xs font-mono text-zinc-400">{w.work_id}</span>
+                  {["epub", "pdf"].includes(w.source_type) && w.ingestion_state === "complete" && (
+                    <a
+                      href={`/works/${w.work_id}/read`}
+                      className="rounded border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+                    >
+                      Read
+                    </a>
+                  )}
                   {editingWorkId !== w.work_id && (
                     <button
                       type="button"

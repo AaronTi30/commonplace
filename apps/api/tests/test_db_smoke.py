@@ -1,6 +1,8 @@
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import select, text
+
+from app.db.models import ReadingProgress
 
 
 def test_db_smoke(db_session):
@@ -110,4 +112,10 @@ def test_db_smoke(db_session):
         ),
         {"id": job_id, "work_id": work_id},
     )
+
+
+def test_reading_progress_table_exists(db_session):
+    """Confirm the reading_progress table is reachable."""
+    result = db_session.execute(select(ReadingProgress)).all()
+    assert result == []
 

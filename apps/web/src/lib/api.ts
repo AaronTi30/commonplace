@@ -1,6 +1,6 @@
 // Next replaces NEXT_PUBLIC_* at build time for both server + client bundles.
 // Avoid runtime `typeof process` checks that can behave differently in dev.
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -273,4 +273,20 @@ export async function streamAsk(
       }
     }
   }
+}
+
+export async function getReadingProgress(
+  workId: string,
+): Promise<{ position: string | null }> {
+  return apiFetch(`/api/works/${workId}/progress`);
+}
+
+export async function putReadingProgress(
+  workId: string,
+  position: string,
+): Promise<{ position: string }> {
+  return apiFetch(`/api/works/${workId}/progress`, {
+    method: "PUT",
+    json: { position },
+  });
 }

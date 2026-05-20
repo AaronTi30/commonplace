@@ -3,15 +3,17 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import Session
 
 from app.api.errors import error
 from app.db.deps import get_db_session
-from app.db.models import Passage, PassageEmbedding, Source, SourceArtifact, SourceType, Work
+from app.db.models import Passage, PassageEmbedding, ReadingProgress, Source, SourceArtifact, SourceType, Work
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,10 @@ class PatchWorkBody(BaseModel):
     title: str | None = Field(default=None)
     author: str | None = Field(default=None)
     language: str | None = Field(default=None)
+
+
+class ProgressBody(BaseModel):
+    position: str
 
 
 @router.get("/works")
@@ -111,12 +117,15 @@ def get_work(
 
     next_cursor = str(passages_page[-1].passage_index) if has_more and passages_page else None
 
+    source = session.get(Source, work.source_id)
+
     return {
         "work": {
             "work_id": work.id,
             "title": work.title,
             "author": work.author,
             "language": work.language,
+            "source_type": source.source_type.value if source else None,
             "ingestion_state": work.ingestion_state.value,
             "ingested_at": work.ingested_at,
             "created_at": work.created_at,
@@ -203,3 +212,69 @@ def delete_work(work_id: uuid.UUID, session: Session = Depends(get_db_session)) 
     session.flush()
 
     return {"deleted": True, "work_id": str(work_id)}
+
+
+@router.get("/works/{work_id}/file")
+def get_work_file(work_id: uuid.UUID, session: Session = Depends(get_db_session)):
+    work = session.get(Work, work_id)
+    if not work:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
+
+    source = session.get(Source, work.source_id)
+    if source is None or source.source_type not in (SourceType.epub, SourceType.pdf):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error("file_not_available", "this work has no uploaded file"),
+        )
+
+    artifact = session.scalar(
+        select(SourceArtifact)
+        .where(SourceArtifact.source_id == source.id)
+        .order_by(SourceArtifact.created_at.desc())
+        .limit(1)
+    )
+    if artifact is None or not artifact.raw_file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error("file_not_found", "file path not recorded"),
+        )
+    if not os.path.isfile(artifact.raw_file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error("file_not_found", "file not found on disk"),
+        )
+
+    media_type = (
+        "application/epub+zip"
+        if artifact.raw_file_path.lower().endswith(".epub")
+        else "application/pdf"
+    )
+    return FileResponse(artifact.raw_file_path, media_type=media_type)
+
+
+@router.get("/works/{work_id}/progress")
+def get_reading_progress(work_id: uuid.UUID, session: Session = Depends(get_db_session)) -> dict:
+    work = session.get(Work, work_id)
+    if not work:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
+    progress = session.get(ReadingProgress, work_id)
+    return {"position": progress.position if progress else None}
+
+
+@router.put("/works/{work_id}/progress")
+def put_reading_progress(
+    work_id: uuid.UUID,
+    body: ProgressBody,
+    session: Session = Depends(get_db_session),
+) -> dict:
+    work = session.get(Work, work_id)
+    if not work:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error("not_found", "work not found"))
+    progress = session.get(ReadingProgress, work_id)
+    if progress:
+        progress.position = body.position
+        progress.updated_at = datetime.now(timezone.utc)
+    else:
+        session.add(ReadingProgress(work_id=work_id, position=body.position))
+    session.flush()
+    return {"position": body.position}

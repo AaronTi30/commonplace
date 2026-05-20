@@ -8,7 +8,21 @@ const nextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: path.join(__dirname, "../.."),
   // Hide the Next.js dev indicator ("N" badge) in the corner during `next dev`.
-  devIndicators: false
+  devIndicators: false,
+  // epubjs "module" field points at untranspiled src/; use the compiled lib build.
+  transpilePackages: ["epubjs"],
+  turbopack: {
+    resolveAlias: {
+      epubjs: path.resolve(__dirname, "node_modules/epubjs/lib/index.js"),
+    },
+  },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      epubjs: path.resolve(__dirname, "node_modules/epubjs/lib/index.js"),
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

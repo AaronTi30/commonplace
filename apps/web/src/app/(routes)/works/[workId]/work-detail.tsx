@@ -55,20 +55,30 @@ export function WorkDetailView({ workId }: Props) {
               </p>
               <p className="mt-1 text-xs text-zinc-400 font-mono">{workId}</p>
             </div>
-            <button
-              type="button"
-              className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-              onClick={async () => {
-                const ok = window.confirm(
-                  `Delete this work from your corpus?\n\n${(work.title as string) ?? "Untitled"}\n${workId}`
-                );
-                if (!ok) return;
-                await deleteWork(workId);
-                router.push("/corpus");
-              }}
-            >
-              Delete
-            </button>
+            <div className="flex gap-2">
+              {["epub", "pdf"].includes(work.source_type as string) && (
+                <a
+                  href={`/works/${workId}/read`}
+                  className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  Read
+                </a>
+              )}
+              <button
+                type="button"
+                className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                onClick={async () => {
+                  const ok = window.confirm(
+                    `Delete this work from your corpus?\n\n${(work.title as string) ?? "Untitled"}\n${workId}`
+                  );
+                  if (!ok) return;
+                  await deleteWork(workId);
+                  router.push("/corpus");
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </header>
       )}

@@ -14,20 +14,22 @@ def _format_passage_block(p: dict[str, Any], index: int) -> str:
 
 def build_strict_prompt(question: str, passages: list[dict[str, Any]]) -> str:
     blocks = "\n".join(_format_passage_block(p, i) for i, p in enumerate(passages, start=1))
-    return f"""You answer using ONLY the passages below. Respond with a single JSON object (no markdown fences, no commentary).
+    return f"""You answer questions using ONLY the source passages provided. Respond with a single JSON object — no markdown fences, no commentary, nothing else.
 
 Schema:
 {{"claims":[{{"claim":"string","supports":[{{"passage_id":"<uuid>","quote":"verbatim substring from that passage's text"}}]}}]}}
 
 Rules:
-- Each "quote" MUST be copied verbatim from the passage matching passage_id (can be a substring).
-- Only use passage_id values that appear in the context.
-- If you cannot ground claims in the passages, return {{"claims":[]}}.
+- Each "quote" MUST be a verbatim substring copied exactly from the passage with that passage_id.
+- Only use passage_id values that appear below.
+- If you cannot ground every claim in the passages, return {{"claims":[]}}.
 
-Question: {question}
-
+SOURCE PASSAGES:
 {blocks}
-"""
+
+QUESTION: {question}
+
+JSON ANSWER:"""
 
 
 def build_strict_repair_prompt(
@@ -52,26 +54,28 @@ Previous output (invalid):
 
 def build_fluent_prompt(question: str, passages: list[dict[str, Any]]) -> str:
     blocks = "\n".join(_format_passage_block(p, i) for i, p in enumerate(passages, start=1))
-    return f"""You are a helpful assistant. Answer the question using the numbered passages below.
+    return f"""You are a helpful assistant that answers questions using only the provided source passages.
 
-Citation rules (MANDATORY):
-- Use inline numeric citations like [1], [2] that refer to the passage numbers below.
-- Do NOT write \"Excerpt 1\" or similar text; ONLY use [N] markers.
-- Every paragraph must contain at least one [N] citation.
-- If you cannot answer from the passages, respond with: Insufficient evidence. [1]
-
-Question: {question}
-
+SOURCE PASSAGES:
 {blocks}
-"""
+
+QUESTION: {question}
+
+INSTRUCTIONS:
+- Answer the question directly and concisely.
+- Use inline citations like [1], [2] referring to the passage numbers above.
+- Every sentence that makes a claim must include at least one [N] citation.
+- Do NOT use phrases like "Excerpt 1" — only [N] markers.
+- If the passages do not contain enough information to answer, respond with: Insufficient evidence.
+
+ANSWER:"""
 
 
 def build_fluent_repair_prompt(question: str, passages: list[dict[str, Any]], previous: str) -> str:
     base = build_fluent_prompt(question, passages)
-    return f"""You forgot to include required [N] citations. Rewrite your answer and include [N] citations.
+    return f"""Your previous answer was missing required [N] citations. Rewrite it with proper [N] citations.
 
-Previous output (invalid):
+Previous output (missing citations):
 {previous}
 
-{base}
-"""
+{base}"""

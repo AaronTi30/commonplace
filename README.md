@@ -155,6 +155,9 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 5. Try strict mode — valid questions return grounded JSON claims; questions the model can't ground return "Insufficient evidence" instead of a hallucination
 6. Delete a work from the Corpus page
 
+<img width="3380" height="2478" alt="Screenshot 2026-05-20 at 00-32-13 commonplace" src="https://github.com/user-attachments/assets/1b094e59-4bbf-4583-9305-345aa2fc4168" />
+
+
 ---
 
 ## Tests

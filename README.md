@@ -2,7 +2,7 @@
 
 Local-first semantic search and grounded Q&A (RAG) over any public-domain text.
 
-**Stack:** FastAPI · Next.js · PostgreSQL + pgvector · Ollama · sentence-transformers · Alembic · TanStack Query
+**Stack:** FastAPI · Next.js · PostgreSQL + pgvector · Ollama · sentence-transformers · Alembic 
 
 ---
 

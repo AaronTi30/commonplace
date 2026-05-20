@@ -39,3 +39,6 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 worktrees/
+
+# Firecrawl scrape cache
+.firecrawl/

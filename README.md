@@ -1,6 +1,6 @@
 # commonplace
 
-Local-first semantic search and grounded Q&A (RAG) over any public-domain text.
+Local-first semantic search and grounded Q&A (RAG) over local epub/pdf and public domain books.
 
 **Stack:** FastAPI · Next.js · PostgreSQL + pgvector · Ollama · sentence-transformers · Alembic 
 
